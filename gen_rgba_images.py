@@ -264,16 +264,17 @@ class Glasses(Enum):
 #----------------------------------------------------------------------------
 
 # get bounding box on rgba image
-def get_BB(image):
-    mask = image[:, :, -1]
+def get_BB(image, mask):
+    # mask = image[:, :, -1]
     
     _, thresh = cv.threshold(mask, 150,255,cv.THRESH_BINARY)
     contours, _ = cv.findContours(thresh, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
     #contours, _ = cv.findContours(mask[:, :, -1], cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
 
     contour = max(contours, key=cv.contourArea)
-    # BB
-    bb_x,bb_y,bb_w,bb_h = cv.boundingRect(contour)
+    # # BB
+    # bb_x,bb_y,bb_w,bb_h = cv.boundingRect(contour)
+    bb_x,bb_y,bb_w,bb_h = cv.boundingRect(thresh)
     x1 = np.max((0, bb_x))
     y1 = np.max((0, bb_y))
     x2 = np.max((0, bb_w))
@@ -300,7 +301,7 @@ def convert_dataset(
     resolution: str
 ):
     
-    source = "."
+    source = "/Users/thomas/Downloads/out"
     add_alpha = True
     dest = "new_out"
     resolution=(1024, 1024)
@@ -349,8 +350,8 @@ def convert_dataset(
     for object_id in range(1,11):
         file_paths = []
         mask_paths = []
-        file_paths.append(glob(f"out/{object_id:02d}/originals/*.png"))
-        mask_paths.append(glob(f"out/{object_id:02d}/masks/*.png"))
+        file_paths.append(glob(f"{source}/{object_id:02d}/originals/{object_id:02d}*/*.png"))
+        mask_paths.append(glob(f"{source}/{object_id:02d}/masks/{object_id:02d}*/*.png"))
 
     # for root, dirs, files in os.walk(source):
         #files = [f for f in files if f.lower().endswith('.png')]
@@ -363,10 +364,15 @@ def convert_dataset(
         mask_paths = mask_paths[0];
        
         # Read until video is completed
-        for file_path in file_paths:
+        for file_path, mask_path in zip(file_paths, mask_paths):
             counter = len(file_paths)
             img = cv.imread(file_path)
-            mask = cv.imread(file_path)
+            mask = cv.imread(mask_path, cv.IMREAD_UNCHANGED)
+            if False and DEBUG:
+                cv.imshow('image', img)
+                cv.waitKey(0)
+                cv.imshow('mask', mask)
+                cv.waitKey(0)
             cur_image_attrs = {
                 'width': img.shape[1],
                 'height': img.shape[0],
@@ -381,9 +387,14 @@ def convert_dataset(
 
             object_id = file_path.split('/')[1] #'out/01/originals/frame_0.png'
 
-            img_w_alpha = np.stack((img, mask), axis=3)
-            bbox, area = get_BB(img_w_alpha)
-            bbox, area = get_BB(cv.cvtColor(np.uint8(img_w_alpha),cv.COLOR_BGRA2GRAY))
+            # img_w_alpha = np.stack((img, mask), axis=3)
+            bbox, area = get_BB(img, mask)
+            cv.rectangle(img, (bbox[0], bbox[1]), (bbox[0]+bbox[2], bbox[1]+bbox[3]), (0, 255, 0), 2)  
+            cv.imshow('mask', mask)
+            cv.waitKey(0) 
+            cv.imshow('image', img)
+            cv.waitKey(0)
+            #bbox, area = get_BB(cv.cvtColor(np.uint8(img_w_alpha),cv.COLOR_BGRA2GRAY))
             height, width = int(img.shape[0]), int(img.shape[1])
             # save image bytes
             img = PIL.Image.fromarray(img, { 3: 'RGB' , 4: 'RGBA'}[img.shape[2]])
