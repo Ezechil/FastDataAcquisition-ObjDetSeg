@@ -389,11 +389,12 @@ def convert_dataset(
 
             # img_w_alpha = np.stack((img, mask), axis=3)
             bbox, area = get_BB(img, mask)
-            cv.rectangle(img, (bbox[0], bbox[1]), (bbox[0]+bbox[2], bbox[1]+bbox[3]), (0, 255, 0), 2)  
-            cv.imshow('mask', mask)
-            cv.waitKey(0) 
-            cv.imshow('image', img)
-            cv.waitKey(0)
+            if False and DEBUG:
+                cv.rectangle(img, (bbox[0], bbox[1]), (bbox[0]+bbox[2], bbox[1]+bbox[3]), (0, 255, 0), 2)  
+                cv.imshow('mask', mask)
+                cv.waitKey(0) 
+                cv.imshow('image', img)
+                cv.waitKey(0)
             #bbox, area = get_BB(cv.cvtColor(np.uint8(img_w_alpha),cv.COLOR_BGRA2GRAY))
             height, width = int(img.shape[0]), int(img.shape[1])
             # save image bytes
