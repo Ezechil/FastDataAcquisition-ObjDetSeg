@@ -1,7 +1,6 @@
 import os
 import zipfile
 import click
-import ffmpegio
 import PIL.Image
 import numpy as np
 import cv2 as cv
@@ -267,9 +266,11 @@ class Glasses(Enum):
 # get bounding box on rgba image
 def get_BB(image):
     mask = image[:, :, -1]
+    
     _, thresh = cv.threshold(mask, 150,255,cv.THRESH_BINARY)
     contours, _ = cv.findContours(thresh, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
-    
+    #contours, _ = cv.findContours(mask[:, :, -1], cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)
+
     contour = max(contours, key=cv.contourArea)
     # BB
     bb_x,bb_y,bb_w,bb_h = cv.boundingRect(contour)
@@ -285,10 +286,10 @@ def get_BB(image):
 
 @click.command()
 @click.pass_context
-@click.option('--source', help='Directory or archive name for input dataset', required=True, metavar='PATH')
-@click.option('--add_alpha', is_flag=True, help='Option for adding the mask as alpha channel', required=True, metavar=bool)
+@click.option('--source', help='Directory or archive name for input dataset', required=False, metavar='PATH')
+@click.option('--add_alpha', is_flag=True, help='Option for adding the mask as alpha channel', required=False, metavar=bool)
 @click.option('--scale', help='scale the object', metavar=float)
-@click.option('--dest', help='Output directory or archive name for output dataset', required=True, metavar='PATH')
+@click.option('--dest', help='Output directory or archive name for output dataset', required=False, metavar='PATH')
 @click.option('--resolution', help='Output resolution (e.g., \'512x512\')', metavar='WxH', type=parse_tuple)
 def convert_dataset(
     ctx: click.Context,
@@ -298,6 +299,11 @@ def convert_dataset(
     dest: str,
     resolution: str
 ):
+    
+    source = "."
+    add_alpha = True
+    dest = "new_out"
+    resolution=(1024, 1024)
 
     PIL.Image.init() # type: ignore
     
@@ -319,8 +325,6 @@ def convert_dataset(
         source_split = source.split(',')
     except:
         source_split = [source]
-
-    if resolution is None: resolution=(1024, 1024)
     
     annotation_train = {}
     # add categories
@@ -334,122 +338,76 @@ def convert_dataset(
     images_train = []
     annotations_train = []
     
-    backgrounds = glob(f"./backgrounds/backgrounds/*.png")
+    #backgrounds = glob(f"./backgrounds/backgrounds/*.png")
     
     dataset_attrs = None
     labels_train = []
     print("Start processing images")
     train_idx = 0
-    # iterate over videos in folder
-    for root, dirs, files in os.walk(source):
-        files = [f for f in files if f.lower().endswith('.mov') or f.lower().endswith('.mp4')]
-        for f in files:
-            images_per_obj = 0
-            # get label
-            obj_name = f.split('.')[0].lower()
-            if "glass" in obj_name:
-                label = Glasses[obj_name].value
-            else:
-                label = YCBV[obj_name].value
-            print('Obj class: ', label)
-            print("File: ", f)
+    # iterate over pictures in folder
+
+    for object_id in range(1,11):
+        file_paths = []
+        mask_paths = []
+        file_paths.append(glob(f"out/{object_id:02d}/originals/*.png"))
+        mask_paths.append(glob(f"out/{object_id:02d}/masks/*.png"))
+
+    # for root, dirs, files in os.walk(source):
+        #files = [f for f in files if f.lower().endswith('.png')]
+        #for f in files:
+        images_per_obj = 0
+        # get label
+        label = object_id
+       # print(file_paths)
+        file_paths = file_paths[0];
+        mask_paths = mask_paths[0];
+       
+        # Read until video is completed
+        for file_path in file_paths:
+            counter = len(file_paths)
+            img = cv.imread(file_path)
+            mask = cv.imread(file_path)
+            cur_image_attrs = {
+                'width': img.shape[1],
+                'height': img.shape[0],
+                'channels': img.shape[2]
+            }
+            if dataset_attrs is None:
+                dataset_attrs = cur_image_attrs
+                width = dataset_attrs['width']
+                height = dataset_attrs['height']
+            elif dataset_attrs != cur_image_attrs:
+                err = [f'  dataset {k}i:02d/cur image {k}: {dataset_attrs[k]}/{cur_image_attrs[k]}' for k in dataset_attrs.keys()]
+
+            object_id = file_path.split('/')[1] #'out/01/originals/frame_0.png'
+
+            img_w_alpha = np.stack((img, mask), axis=3)
+            bbox, area = get_BB(img_w_alpha)
+            bbox, area = get_BB(cv.cvtColor(np.uint8(img_w_alpha),cv.COLOR_BGRA2GRAY))
+            height, width = int(img.shape[0]), int(img.shape[1])
+            # save image bytes
+            img = PIL.Image.fromarray(img, { 3: 'RGB' , 4: 'RGBA'}[img.shape[2]])
+            image_bits = io.BytesIO()
+            img.save(image_bits, format='png', compress_level=0, optimize=False)
             
-            cap = cv.VideoCapture(os.path.join(root, f))
-            # Read until video is completed
-            while(cap.isOpened()):
-              # Capture frame-by-frame
-              ret, image = cap.read()
-              if ret == True:
-                # do we have enough samples of the object?
-                if images_per_obj >= max_images:
-                    break
-                                            
-                # crop frames and resize to specified resolution
-                if scale is not None:
-                    img = transform_image(image, resolution, add_alpha, object_scale=scale)
-                else :
-                    img = transform_image(image, resolution, add_alpha)
-                                                          
-
-                # Transform may drop images.
-                if img is None:
-                    continue   
-                
-                # add background
-                bg_idx = np.random.randint(0, len(backgrounds)-1, 1)
-                #print(bg_idx)
-                bg = cv.imread(backgrounds[bg_idx[0]])
-                bg = cv.resize(bg, resolution, interpolation=cv.INTER_LANCZOS4)
-                bg = cv.cvtColor(bg, cv.COLOR_BGR2RGB)
-                bg_rgba = cv.cvtColor(bg, cv.COLOR_RGB2RGBA)
-                bg_rgba[:, :, 3] = np.zeros_like(bg_rgba[:, :, 3])
-                mask = np.repeat(np.expand_dims(img[:,:,-1], axis=2), 4, axis=2) 
-                img = np.where(mask > 100, img, bg_rgba)  
-                
-                if debug:    
-                    img_tmp = img[:,:,:-1]
-                    mask = np.where(img[:,:,-1] > 100, 1.0, 0.0)
-                    mask_tmp = np.repeat(np.expand_dims(mask,2),3, axis=2)
-                    img_res = mask_tmp * img_tmp 
-                    print("img_tmp: ", img_tmp.shape)
-                    img_res = np.float32(img_res)
-                    img_res = cv.cvtColor(img_res, cv.COLOR_BGR2RGB)
-                    cv.imwrite("./img_res_blending.png", img_res)   
-                    cv.imwrite("./img.png", img)#cv.cvtColor(img, cv.COLOR_RGBA2RGB))
-                    cv.imwrite("./mask.png", mask)
-                    exit()    
-                                  
-
-                # Error check to require uniform image attributes across
-                # the whole dataset.
-                cur_image_attrs = {
-                    'width': img.shape[1],
-                    'height': img.shape[0],
-                    'channels': img.shape[2]
-       	        }
-                if dataset_attrs is None:
-                    dataset_attrs = cur_image_attrs
-                    width = dataset_attrs['width']
-                    height = dataset_attrs['height']
-                    if width != height:
-                        error(f'Image dimensions after scale and crop are required to be square.  Got {width}x{height}')
-                    if dataset_attrs['channels'] not in [3, 4]:
-                        error('Input images must be stored as RGB or RGBA')
-                    if width != 2 ** int(np.floor(np.log2(width))):
-                        error('Image width/height after scale and crop are required to be power-of-two')
-                elif dataset_attrs != cur_image_attrs:
-                    err = [f'  dataset {k}/cur image {k}: {dataset_attrs[k]}/{cur_image_attrs[k]}' for k in dataset_attrs.keys()]
-
-                bbox, area = get_BB(img)
-                height, width = int(img.shape[0]), int(img.shape[1])
-                # save image bytes
-                img = PIL.Image.fromarray(img, { 3: 'RGB' , 4: 'RGBA'}[img.shape[2]])
-                image_bits = io.BytesIO()
-                img.save(image_bits, format='png', compress_level=0, optimize=False)
-                
-                train_idx += 1 
-                idx_str = f'{train_idx:08d}'
-                archive_fname = f'{idx_str[:5]}/img{idx_str}.png'
-                # Save the image as an uncompressed PNG.
-                save_bytes_train(os.path.join(archive_root_dir_train, archive_fname), image_bits.getbuffer())
-                # gen coco format
-                images_train.append({'id': train_idx, 'file_name': archive_fname, 'width': width, 'height': height, 'date_captured': '', 'license': 1, 'coco_url': '', 'flickr_url': ''})
-                annotations_train.append({'id': train_idx, 'image_id': train_idx, 'category_id': label, 'iscrowd': 0, 'area': area, 'bbox': bbox, 'segmentation': [], 'width': width, 'height': height, 'ignore': 'false'})
-                labels_train.append([archive_fname, label])
-                # update image per object counter
-                images_per_obj += 1 # images sampled from this object in total
-                                    
-         
-              # Break the loop
-              else: 
-                break
-             
-            # When everything done, release the video capture object
-            cap.release()
-             
-            # Closes all the frames
-            cv.destroyAllWindows()
-            print(images_per_obj) 
+            train_idx += 1 
+            idx_str = f'{train_idx:08d}'
+            archive_fname = f'{idx_str[:5]}/img{idx_str}.png'
+            # Save the image as an uncompressed PNG.
+            save_bytes_train(os.path.join(archive_root_dir_train, archive_fname), image_bits.getbuffer())
+            # gen coco format
+            images_train.append({'id': train_idx, 'file_name': archive_fname, 'width': width, 'height': height, 'date_captured': '', 'license': 1, 'coco_url': '', 'flickr_url': ''})
+            annotations_train.append({'id': train_idx, 'image_id': train_idx, 'category_id': label, 'iscrowd': 0, 'area': area, 'bbox': bbox, 'segmentation': [], 'width': width, 'height': height, 'ignore': 'false'})
+            labels_train.append([archive_fname, label])
+            # update image per object counter
+            images_per_obj += 1 # images sampled from this object in total
+                                
+        
+        
+            
+        # Closes all the frames
+        #cv.destroyAllWindows()
+        #print(images_per_obj) 
 
     annotation_train['images'] = images_train
     annotation_train['annotations'] = annotations_train

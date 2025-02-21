@@ -340,14 +340,14 @@ def task_pp(lock, rank, backgrounds, resolution, empty_percentage, img_nr, annot
     
 @click.command()
 @click.pass_context
-@click.option('--num_procs', help='Number of processes', required=True, type=int)
-@click.option('--crops', help='Path to the luma data', required=True, metavar='PATH')
-@click.option('--bgs', help='Path to the folder with images to be used as background', required=True, metavar='PATH')
-@click.option('--num_imgs', help='Number of resulting images', required=True, type=int)
-@click.option('--dest', help='Output folder', required=True, metavar='PATH')
-@click.option('--resolution', help='Output resolution (e.g., \'512x512\')', required=True, metavar='WxH', type=parse_tuple)
-@click.option('--num_crops', help='Number of resulting images without BGreplacement (the cropped object)', required=True, type=float, default=0.0)
-@click.option('--num_empty', help='Number of resulting images with only BG, no objects', required=True, type=float, default=0.0)
+@click.option('--num_procs', help='Number of processes', required=False, type=int)
+@click.option('--crops', help='Path to the luma data', required=False, metavar='PATH')
+@click.option('--bgs', help='Path to the folder with images to be used as background', required=False, metavar='PATH')
+@click.option('--num_imgs', help='Number of resulting images', required=False, type=int)
+@click.option('--dest', help='Output folder', required=False, metavar='PATH')
+@click.option('--resolution', help='Output resolution (e.g., \'512x512\')', required=False, metavar='WxH', type=parse_tuple)
+@click.option('--num_crops', help='Number of resulting images without BGreplacement (the cropped object)', required=False, type=float, default=0.0)
+@click.option('--num_empty', help='Number of resulting images with only BG, no objects', required=False, type=float, default=0.0)
 def convert_dataset(
     ctx: click.Context,
     num_procs: int,
@@ -359,6 +359,14 @@ def convert_dataset(
     num_crops: float,
     num_empty: float
 ):    
+    num_procs = 6
+    crops = "new_out"
+    bgs = "Backgrounds"    
+    dest = "Final_Data"
+    num_imgs = 1000
+    num_crops = 0.2
+    num_empty = 0.2
+    resolution=(1024, 1024)
               
     backgrounds = glob(f"%s/*.png" % bgs)
     # artificially extend dataset
